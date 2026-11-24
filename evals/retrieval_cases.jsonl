@@ -1,0 +1,42 @@
+{"tool": "foods", "query": "ゆで卵", "want": ["mext:12005"]}
+{"tool": "exercises", "query": "pull-up alternative", "filters": {"equipment": ["cable"]}, "want": ["ex:Wide-Grip_Lat_Pulldown"]}
+{"tool": "foods", "query": "unicorn steak from the moon", "want": []}
+{"tool": "foods", "query": "boiled egg", "want": ["mext:12005"]}
+{"tool": "foods", "query": "ゆで卵", "want": ["mext:12005"], "note": "whole egg boiled; NOT white-only (12015) or yolk-only (12011)"}
+{"tool": "foods", "query": "鶏むね肉", "want": ["mext:11220", "mext:11219", "mext:11214", "mext:11213", "mext:11288", "mext:11287"], "note": "any chicken breast meat, skin on/off, raw/grilled; NOT skin only (11234)"}
+{"tool": "foods", "query": "鶏むね肉 皮なし 焼き", "want": ["mext:11288"], "note": "specific: skinless, grilled"}
+{"tool": "foods", "query": "納豆", "want": ["mext:04046", "mext:04047"], "note": "regular or ground natto; NOT 甘納豆 (sweet beans)"}
+{"tool": "foods", "query": "ご飯", "want": ["mext:01088"], "note": "cooked white rice (uruchi)"}
+{"tool": "foods", "query": "白ご飯 1杯", "want": ["mext:01088"], "note": "portion words in the query should not confuse search"}
+{"tool": "foods", "query": "食パン", "want": ["mext:01026", "mext:01205", "mext:01206", "mext:01207", "mext:01174"], "note": "any white sandwich bread; NOT rice-flour bread (01211)"}
+{"tool": "foods", "query": "バナナ", "want": ["mext:07107"], "note": "raw; NOT dried (07108)"}
+{"tool": "foods", "query": "牛乳", "want": ["mext:13003"], "note": "regular milk"}
+{"tool": "foods", "query": "無糖ヨーグルト", "want": ["mext:13025", "mext:13053", "mext:13054"], "note": "plain unsweetened, any fat level"}
+{"tool": "foods", "query": "木綿豆腐", "want": ["mext:04032", "mext:04097", "mext:04098"], "note": "firm tofu, any coagulant"}
+{"tool": "foods", "query": "豆腐", "want": ["mext:04032", "mext:04097", "mext:04098", "mext:04033", "mext:04099", "mext:04100"], "note": "plain tofu; NOT ごま豆腐/たまご豆腐/麻婆豆腐 (contain the word, different food)"}
+{"tool": "foods", "query": "オートミール", "want": ["mext:01004"], "note": ""}
+{"tool": "foods", "query": "焼き鮭", "want": ["mext:10136", "mext:10138"], "note": "grilled salmon; word order differs from the table (しろさけ 焼き)"}
+{"tool": "foods", "query": "ブロッコリー ゆで", "want": ["mext:06264"], "note": "boiled, not raw (06263)"}
+{"tool": "foods", "query": "アボカド", "want": ["mext:07006"], "note": ""}
+{"tool": "foods", "query": "hard-boiled egg", "want": ["usda:173424", "mext:12005"], "note": "either table"}
+{"tool": "foods", "query": "roasted chicken breast", "want": ["usda:171477", "mext:11288", "mext:11287"], "note": "cooked breast; NOT fried (171078)"}
+{"tool": "foods", "query": "banana", "want": ["usda:173944", "mext:07107"], "note": "raw"}
+{"tool": "foods", "query": "oatmeal", "want": ["usda:173904", "mext:01004"], "note": "dry oats"}
+{"tool": "foods", "query": "nonfat greek yogurt", "want": ["usda:170894"], "note": "specific product type"}
+{"tool": "foods", "query": "peanut butter", "want": ["usda:174294", "usda:174266", "usda:172470", "usda:172459", "usda:172458"], "note": "any smooth peanut butter"}
+{"tool": "foods", "query": "cooked white rice", "want": ["usda:168878", "mext:01088"], "note": ""}
+{"tool": "foods", "query": "grilled salmon", "want": ["usda:175168", "mext:10136"], "note": "cooked salmon; dry heat = grilled/baked"}
+{"tool": "foods", "query": "natto", "want": ["usda:172443", "mext:04046", "mext:04047"], "note": "English word for a Japanese food: cross-language"}
+{"tool": "foods", "query": "moon cheese supreme", "want": [], "note": "made-up food"}
+{"tool": "foods", "query": "宇宙ステーキ", "want": [], "note": "made-up food, Japanese"}
+{"tool": "exercises", "query": "barbell back squat", "want": ["ex:Barbell_Squat", "ex:Barbell_Full_Squat"], "note": ""}
+{"tool": "exercises", "query": "スクワット", "want": ["ex:Barbell_Squat", "ex:Barbell_Full_Squat", "ex:Front_Barbell_Squat", "ex:Wide_Stance_Barbell_Squat"], "note": "Japanese query, English titles: only vector search can match"}
+{"tool": "exercises", "query": "ベンチプレス", "want": ["ex:Barbell_Bench_Press_-_Medium_Grip", "ex:Wide-Grip_Barbell_Bench_Press", "ex:Close-Grip_Barbell_Bench_Press", "ex:Dumbbell_Bench_Press"], "note": "Japanese query, cross-language"}
+{"tool": "exercises", "query": "chest press", "want": ["ex:Dumbbell_Bench_Press", "ex:Dumbbell_Bench_Press_with_Neutral_Grip", "ex:Incline_Dumbbell_Press", "ex:Decline_Dumbbell_Bench_Press"], "note": "with a filter: dumbbells only", "filters": {"equipment": ["dumbbell"]}}
+{"tool": "exercises", "query": "pull-up alternative", "want": ["ex:Wide-Grip_Lat_Pulldown", "ex:Close-Grip_Front_Lat_Pulldown", "ex:V-Bar_Pulldown", "ex:Underhand_Cable_Pulldowns", "ex:Full_Range-Of-Motion_Lat_Pulldown"], "note": "cable only; NOT straight-arm pulldowns (different movement)", "filters": {"equipment": ["cable"]}}
+{"tool": "exercises", "query": "back exercise without equipment", "want": ["ex:Pullups", "ex:Chin-Up", "ex:Inverted_Row", "ex:V-Bar_Pullup"], "note": "body-weight only", "filters": {"equipment": ["body only"]}}
+{"tool": "exercises", "query": "hamstring exercise", "want": ["ex:Romanian_Deadlift", "ex:Romanian_Deadlift_from_Deficit", "ex:Stiff-Legged_Barbell_Deadlift", "ex:Good_Morning"], "note": "barbell + hamstrings filters", "filters": {"equipment": ["barbell"], "muscle": "hamstrings"}}
+{"tool": "exercises", "query": "lunges", "want": ["ex:Dumbbell_Lunges", "ex:Dumbbell_Rear_Lunge"], "note": "dumbbells only", "filters": {"equipment": ["dumbbell"]}}
+{"tool": "exercises", "query": "plank", "want": ["ex:Plank"], "note": ""}
+{"tool": "exercises", "query": "RDL", "want": ["ex:Romanian_Deadlift", "ex:Romanian_Deadlift_from_Deficit"], "note": "abbreviation: keyword search can't know RDL = Romanian deadlift"}
+{"tool": "exercises", "query": "underwater basket weaving", "want": [], "note": "not an exercise"}

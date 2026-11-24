@@ -26,13 +26,15 @@ def test_s3_every_tool_has_a_schema():
     names = [t["name"] for t in TOOLS]
     assert sorted(names) == sorted([
         "get_context", "update_profile", "get_daily_targets", "log_meal",
-        "get_day_nutrition", "get_session_for", "get_exercise_history", "suggest_next_weight", "log_workout"])
+        "get_day_nutrition", "get_session_for", "get_exercise_history", "suggest_next_weight", "log_workout",
+        "search_foods", "get_food_nutrition", "search_exercises", "suggest_meal"])
     for t in TOOLS:
         assert t["description"].strip(), t["name"]
         assert t["input_schema"]["type"] == "object", t["name"]
         assert set(t["input_schema"]["required"]) <= set(t["input_schema"]["properties"]), t["name"]
     req = {t["name"]: set(t["input_schema"]["required"]) for t in TOOLS}
-    assert req["log_meal"] == {"date", "name", "kcal", "protein_g", "carbs_g", "fat_g"}
+    assert req["log_meal"] == {"items"}
+    assert not {"kcal", "protein_g"} & set(next(t for t in TOOLS if t["name"] == "log_meal")["input_schema"]["properties"])
     assert req["suggest_next_weight"] == {"exercise", "rep_min", "rep_max"}
     assert req["log_workout"] == {"date", "exercises"}
     assert req["get_session_for"] == {"date"}
@@ -51,7 +53,7 @@ def test_s3_errors_come_back_as_text_not_exceptions(store):
     assert err and out.startswith("Error:") and "update_profile" in out
     out, err = call(store, "teleport")
     assert err and "unknown tool" in out
-    out, err = call(store, "log_meal", date="2026-11-23", name="oats")   # missing fields
+    out, err = call(store, "log_meal", date="2026-11-23", name="oats")   # no items
     assert err and out.startswith("Error:")
     out, err = call(store, "update_profile", favourite_colour="red")
     assert err
@@ -59,7 +61,7 @@ def test_s3_errors_come_back_as_text_not_exceptions(store):
 
 def test_s3_nutrition(store):
     call(store, "update_profile", **KAT)
-    call(store, "log_meal", date="2026-11-23", name="oats", kcal=350, protein_g=12, carbs_g=60, fat_g=7)
+    store.log_meal("2026-11-23", "oats", 350, 12, 60, 7)
     out, err = call(store, "get_day_nutrition", date="2026-11-23")
     assert not err
     assert out["totals"] == {"kcal": 350, "protein_g": 12, "carbs_g": 60, "fat_g": 7}
