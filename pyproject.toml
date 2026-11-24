@@ -1,0 +1,14 @@
+[project]
+name = "trainer-agent"
+version = "0.1.0"
+description = "An AI strength coach: a Claude agent with tools for training plans, progression and meals."
+requires-python = ">=3.12"
+dependencies = ["anthropic>=2.12"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

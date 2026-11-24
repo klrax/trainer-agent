@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+data/
+*.tmp
+.env
+
+# private prep notes (not published)
+notes/
+WORKSHOP.md
