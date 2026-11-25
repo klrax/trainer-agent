@@ -26,7 +26,7 @@ cli.py ──► agent.run_turn ──► call_model(messages) ── llm.py    
 - **The agent loop** (`trainer/agent.py`): call the model; if it asks for tools, run them all and
   send every result back in one message; repeat until it answers. Handles parallel tool calls, tool
   errors (returned to the model as text, never raised), `max_tokens`, `pause_turn`, refusals, and a step limit.
-- **Tools** (`trainer/tools.py`): 12 tools with JSON schemas. `get_context` returns the date, the
+- **Tools** (`trainer/tools.py`): 13 tools with JSON schemas. `get_context` returns the date, the
   profile and today's plan with suggested weights in one call, because small models often skipped
   separate lookups.
 - **Deterministic logic in code** (`trainer/coaching.py`): calorie and macro targets (Mifflin-St Jeor),
@@ -36,6 +36,14 @@ cli.py ──► agent.run_turn ──► call_model(messages) ── llm.py    
   data only through tools.
 - **Provider abstraction**: the loop only knows `call_model(messages)`. `llm_ollama.py` translates to
   and from the OpenAI chat format, so the same agent runs on any OpenAI-compatible server (Ollama, vLLM).
+
+## Safety
+
+Pain is handled in code before any model call (`trainer/safety.py`), because the rule was in the prompt and local
+models still suggested weights for a painful knee. Clear pain gets a fixed stop-and-refer reply; a message about the
+user's own joint that isn't clearly neutral gets a question, and no weights. It is pattern matching, so it will miss
+some phrasings. The first version passed its own tests and missed 15 of 18 new phrasings. The current approach
+caught 16 of 22 unseen ones (5 of 27 false alarms); small fixes since then are not re-measured.
 
 ## Retrieval (RAG)
 
@@ -52,8 +60,15 @@ question ─► keyword search (BM25) ─┐
 - **Finding:** hybrid search with Reciprocal Rank Fusion. Filters (equipment, level, muscle) are exact
   and run before ranking. A small glossary links everyday words to official names
   (鶏むね肉 → にわとり むね); it affects what can be found, never a number.
-- **Arithmetic in code:** `get_food_nutrition` scales per-100 g values and sums them. A value the table
-  didn't measure is reported as missing, never counted as zero.
+- **All calorie and protein arithmetic in code** (`trainer/rag/meals.py`): the model sends foods in plain
+  words with an amount (`{"food": "scrambled eggs", "quantity": 2, "unit": "piece"}`). Code finds the entry,
+  converts to grams, adds up, sets the date and works out what is left today. `log_meal` takes no calorie
+  numbers, and `suggest_meal` solves the grams that reach the protein goal.
+- **The tool's answer is the reply** (`trainer/direct.py`, local models): when one nutrition tool answered the
+  whole request, code prints its result instead of asking the model to copy it. One model call instead of two.
+- **Asks instead of guessing:** an unknown or ambiguous food ("chocolate": a cake or a syrup?) is refused and
+  nothing is saved. Assumed sizes are always reported ("1 slice = 55 g"). A value the table didn't measure is
+  reported as missing, never counted as zero.
 - **When it's unsure or down:** poor matches are marked `weak` so the coach asks. Without Ollama it
   falls back to keyword search and says so in the result.
 - **Vector store:** SQLite plus a full scan. At about 11,000 vectors of 256 numbers there is no need
@@ -76,7 +91,7 @@ U.S. Department of Agriculture, FoodData Central (SR Legacy); free-exercise-db (
 
 ```bash
 uv sync
-uv run pytest                                          # 57 tests, no model or API key needed
+uv run pytest                                          # 204 tests, no model or API key needed
 
 # Local model (free; slow on CPU):
 ollama pull qwen3:1.7b
@@ -96,15 +111,33 @@ uv run python -m trainer.cli
   get a pass rate.
 
 ```bash
-uv run python -m evals.run_evals --provider ollama -n 3
+uv run python -m evals.run_evals --provider ollama -n 3 --label after --out data/compare.jsonl
+uv run python -m evals.compare data/compare.jsonl          # pass rate per scenario, per run label
 ```
+
+Checks are code wherever possible (was a write made? is the number right? was nothing saved on a question?);
+an LLM judge only grades tone, because a 1.7B model judging itself is weak.
+
+Results on qwen3:1.7b, 3 runs per scenario:
+
+| Change | Scenarios | Passed |
+|---|---|---|
+| Starting point | 10 | 20/30 |
+| Safety and direct nutrition answers in code, fixed eval checks | 10 | 25/30 (median turn 26 s → 7 s) |
+| 9 new scenarios, prompt and tool-description fixes only | 19 | 36/57 |
+| Code fixes: dates and sets parsed in code, a fixed reply for very-low-calorie requests, a `next_step` hint in tool results | 19 | 47/57 |
+
+Same 10 scenarios on other local models: qwen3:0.6b 4/30, granite4:350m 8/30, qwen3:1.7b with thinking 12/30 (117 s median).
 
 ## Lessons so far (local qwen3:1.7b)
 
+- **Prompt rules barely moved a small model; code that removes the choice worked every time.**
+  Weights, dates, set counts, calorie math and safety replies are all decided in code.
 - The model skipped profile lookups and asked for details that were already saved. Merging the
   lookups into one `get_context` tool fixed it.
-- It invented weights when there was no history. Weights are now computed in code and returned by
-  `get_context`, and the prompt forbids making them up.
-- One run logged a fake workout in response to a question. Next steps: validation in write tools,
-  and eval checks for unwanted side effects.
+- A tool result can steer the next step: `get_context` with no profile now says what to ask for.
+- Evals have bugs too: three checks were wrong and one scenario tested the wrong thing. Read the
+  traces before changing the agent.
+- What still fails is model capability: claiming a profile update without calling the tool, and
+  reading data when it should log a meal. Next: the same scenarios on a stronger model.
 - About 60 s per model call on a laptop CPU. A hosted model is needed for use from a phone.

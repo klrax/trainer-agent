@@ -10,11 +10,11 @@ import json
 import time
 from pathlib import Path
 
-from .agent import run_turn
 from .llm import UsageLog, make_call_model
 from .prompts import SYSTEM
 from .store import Store
 from .tools import TOOLS, run_tool
+from .turn import respond
 
 DIM, RESET = "\033[2m", "\033[0m"
 
@@ -35,6 +35,8 @@ def main() -> None:
     ap.add_argument("--provider", default="claude", choices=["claude", "ollama"])
     ap.add_argument("--model", default=None, help="ollama model name (default: llm_ollama.DEFAULT_MODEL)")
     ap.add_argument("--think", action="store_true", help="ollama only: let qwen3 reason before answering (slower)")
+    ap.add_argument("--no-direct", action="store_true",
+                    help="ollama only: let the model rewrite nutrition answers instead of printing the tool's own (slower)")
     opts = ap.parse_args()
 
     Path(opts.data).parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +89,8 @@ def main() -> None:
 
         messages.append({"role": "user", "content": user})
         calls["n"] = 0
-        result = run_turn(messages, timed_call_model, execute_tool)
+        result = respond(messages, timed_call_model, execute_tool,
+                         direct=opts.provider == "ollama" and not opts.no_direct)
         if result.stopped == "refusal":
             messages.pop()          # drop the declined message so the next turn starts clean
         print(f"\ncoach> {result.text or '(no text)'}")

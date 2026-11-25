@@ -17,14 +17,15 @@ from typing import Any
 from . import coaching
 from .context import build_context
 from .rag import meals
-from .rag.knowledge import LEVELS, KnowledgeBase, default_kb
-from .store import Store
+from .rag.knowledge import CATEGORIES, LEVELS, KnowledgeBase, default_kb
+from .store import PROFILE_FIELDS, Store
 
 MUSCLES = ["abdominals", "abductors", "adductors", "biceps", "calves", "chest", "forearms", "glutes", "hamstrings",
            "lats", "lower back", "middle back", "neck", "quadriceps", "shoulders", "traps", "triceps"]
 EQUIPMENT = ["bands", "barbell", "body only", "cable", "dumbbell", "e-z curl bar", "exercise ball", "foam roll",
              "kettlebells", "machine", "medicine ball", "other"]
 DATE = {"type": "string", "description": "A date as YYYY-MM-DD."}
+DAYS_AGO = {"type": "integer", "description": "0 = today (default), 1 = yesterday."}
 FOOD_ITEMS = {
     "type": "array",
     "description": "One entry per food.",
@@ -45,7 +46,7 @@ FOOD_ITEMS = {
 #                         (hint: "enum" for sex ["female","male"], activity list(coaching.ACTIVITY),
 #                          goal list(coaching.GOAL_ADJUST); train_days is an array of WEEKDAYS strings)
 #   get_daily_targets:    required []
-#   get_day_nutrition:    required []                     optional "date" (default today)
+#   get_day_nutrition:    required []                     optional "days_ago" (0 = today)
 #   get_session_for:      required ["date"]
 #   get_exercise_history: required ["exercise"]            optional "limit" (integer)
 #   suggest_next_weight:  required ["exercise", "rep_min", "rep_max"]
@@ -72,16 +73,17 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "items": FOOD_ITEMS,
-                "days_ago": {"type": "integer", "description": "0 = today (default), 1 = yesterday."},
+                "days_ago": DAYS_AGO,
             },
             "required": ["items"],
         },
     },
     {
         "name": "update_profile",
-        "description": "Saves or changes profile fields. Send only the fields that changed; the others are kept. "
-                       "Call it as soon as the user tells you something about themselves (new weight, new goal, "
-                       "an injury, which days they can train).",
+        "description": "Saves or changes LASTING profile facts. Send only the fields that changed; the others are "
+                       "kept. Call it when the user tells you a lasting fact about themselves (new weight, new goal, "
+                       "an injury, which days they can train). Never for a passing state (a cold, tiredness, a bad "
+                       "night's sleep, normal soreness): don't save those, just adapt today's advice.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -97,7 +99,8 @@ TOOLS: list[dict[str, Any]] = [
                 "train_days": {"type": "array", "items": {"type": "string", "enum": coaching.WEEKDAYS},
                                "description": "Weekdays they can train, 2 to 6 of them, e.g. [\"Mon\", \"Wed\", \"Fri\"]."},
                 "experience": {"type": "string", "description": "e.g. 'new to lifting', '2 years'."},
-                "injuries": {"type": "string", "description": "Current injuries or pain; '' if none."},
+                "injuries": {"type": "string", "description": "Lasting injuries (e.g. 'left knee meniscus'); not "
+                                                         "illnesses like a cold. '' if none."},
             },
             "required": [],
         },
@@ -112,8 +115,7 @@ TOOLS: list[dict[str, Any]] = [
         "name": "get_day_nutrition",
         "description": "Returns the meals logged on a day, their totals, and what is left of each target "
                        "(negative = over the target). Use it for 'how am I doing today?'.",
-        "input_schema": {"type": "object", "properties": {
-            "date": {"type": "string", "description": "YYYY-MM-DD. Leave out for today."}}, "required": []},
+        "input_schema": {"type": "object", "properties": {"days_ago": DAYS_AGO}, "required": []},
     },
     {
         "name": "get_session_for",
@@ -151,33 +153,29 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "log_workout",
-        "description": "Records a finished workout: every exercise with the reps and weight of each set. "
-                       "Use the program's exercise names so history and weight suggestions find them. "
-                       "Confirm with the user what you logged.",
+        "description": "Records a workout the user says they FINISHED, one entry per exercise: '3 sets of 8 at 40 kg' "
+                       "= {name, sets: 3, reps: 8, weight_kg: 40}. Use the program's exercise names so history and "
+                       "weight suggestions find them. The date is worked out from days_ago. Never call it for a "
+                       "question or a plan. Confirm with the user what you logged.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "date": DATE,
                 "exercises": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "name": {"type": "string"},
-                            "sets": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {"reps": {"type": "integer"}, "weight_kg": {"type": "number"}},
-                                    "required": ["reps", "weight_kg"],
-                                },
-                            },
+                            "name": {"type": "string", "description": "e.g. 'Back squat'."},
+                            "sets": {"type": "integer", "description": "How many sets, e.g. 3."},
+                            "reps": {"type": "integer", "description": "Reps in each set."},
+                            "weight_kg": {"type": "number", "description": "0 for bodyweight."},
                         },
-                        "required": ["name", "sets"],
+                        "required": ["name", "sets", "reps", "weight_kg"],
                     },
                 },
+                "days_ago": DAYS_AGO,
             },
-            "required": ["date", "exercises"],
+            "required": ["exercises"],
         },
     },
     {
@@ -209,7 +207,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "meal": {"type": "string", "enum": list(meals.MEALS_LEFT)},
-                "protein_g": {"type": "number", "description": "Only if the user named a number."},
+                "protein_g": {"type": "number", "description": "Minimum. Only if the user named a number."},
                 "max_kcal": {"type": "number", "description": "Only if the user named a number."},
                 "avoid": {"type": "array", "items": {"type": "string", "enum": meals.AVOID},
                           "description": "Allergies and dislikes the user mentioned."},
@@ -220,7 +218,8 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "search_exercises",
         "description": "Find exercises for building or changing a training menu: alternatives when equipment is "
-                       "missing or an exercise is uncomfortable, extra work for a muscle, or how to do a movement. "
+                       "missing or an exercise is uncomfortable, extra work for a muscle, cardio (category "
+                       "'cardio'), or how to do a movement. "
                        "Only suggest exercises this returns or that are in the user's program.",
         "input_schema": {
             "type": "object",
@@ -233,7 +232,9 @@ TOOLS: list[dict[str, Any]] = [
                 "equipment": {"type": "array", "items": {"type": "string", "enum": EQUIPMENT},
                               "description": "Only what the user has. Leave out if any equipment is fine."},
                 "level": {"type": "string", "enum": LEVELS, "description": "This level or easier."},
-                "include_stretching": {"type": "boolean", "description": "Also stretches, cardio and plyometrics."},
+                "category": {"type": "string", "enum": sorted(CATEGORIES),
+                             "description": "'training' (lifting, the default), 'cardio' (walking, running, cycling, "
+                                            "rowing machine...), 'stretching', 'plyometrics' or 'strongman'."},
                 "limit": {"type": "integer", "description": "1-10, default 5."},
             },
             "required": ["query"],
@@ -260,7 +261,7 @@ def run_tool(name: str, args: dict[str, Any], store: Store, today: dt.date,
     - update_profile       -> store.update_profile(**args)
     - get_daily_targets    -> coaching.daily_targets(profile)
     - log_meal             -> code finds the foods and calculates; the model never sends calories
-                               {"logged": meal, "items", "assumptions", "say", "remaining_today"}
+                               {"logged": meal, "per_food", "assumptions", "say", "remaining_today"}
     - suggest_meal         -> rag/meals.py: grams solved to reach the protein goal; saves nothing
     - get_day_nutrition    -> {"meals": [...], "totals": coaching.day_totals(...),
                                "remaining": coaching.remaining(targets, meals)}
@@ -284,17 +285,24 @@ def run_tool(name: str, args: dict[str, Any], store: Store, today: dt.date,
     """
     try:
         if name == "get_context":
+            if set(args) & PROFILE_FIELDS:              # seen: {"weight_kg": 58} sent here instead of update_profile
+                return ("Error: get_context takes no arguments and saved nothing. If the user told you something new "
+                        "about themselves, call update_profile with ONLY what they said."), True
             result = build_context(store, today)
         elif name == "update_profile":
-            result = store.update_profile(**args)
+            # Small models resend the whole profile; keep only real changes, so a reply can't silently rewrite it.
+            saved = store.get_profile() or {}
+            changed = {k: v for k, v in args.items() if saved.get(k) != v}
+            result = store.update_profile(**changed) if changed else {"unchanged": True, "profile": saved}
         elif name == "get_daily_targets":
             result = coaching.daily_targets(_need_profile(store))
         elif name == "log_meal":
             result = _log_meal(args, store, today, kb or default_kb())
         elif name == "get_day_nutrition":
             targets = coaching.daily_targets(_need_profile(store))
-            eaten = store.meals_on(args.get("date") or today.isoformat())
-            result = {"meals": eaten, "totals": _rounded(coaching.day_totals(eaten)),
+            date = _date(args, today)
+            eaten = store.meals_on(date)
+            result = {"date": date, "targets": targets, "meals": eaten, "totals": _rounded(coaching.day_totals(eaten)),
                       "remaining": _rounded(coaching.remaining(targets, eaten))}
         elif name == "get_session_for":
             profile = _need_profile(store)
@@ -307,12 +315,19 @@ def run_tool(name: str, args: dict[str, Any], store: Store, today: dt.date,
             result = {"exercise": args["exercise"],
                       "weight_kg": coaching.next_weight(history, args["rep_min"], args["rep_max"])}
         elif name == "log_workout":
-            store.log_workout(args["date"], args["exercises"])
-            result = {"ok": True}
+            date = _date(args, today)                       # models made up 2023-10-15; they don't send dates
+            exercises = [_sets(e) for e in args["exercises"]]
+            store.log_workout(date, exercises)
+            result = {"ok": True, "date": date,
+                      "logged": [f"{e['name']}: {len(e['sets'])}x{e['sets'][0]['reps']} at {e['sets'][0]['weight_kg']:g} kg"
+                                 if len({(x['reps'], x['weight_kg']) for x in e['sets']}) == 1 else
+                                 f"{e['name']}: " + ", ".join(f"{x['reps']} at {x['weight_kg']:g} kg" for x in e['sets'])
+                                 for e in exercises]}
         elif name == "search_foods":
             result = (kb or default_kb()).search_foods(**args)
         elif name == "get_food_nutrition":
             result = meals.calculate(kb or default_kb(), args.get("items"))
+            result = {k: v for k, v in result.items() if k != "items"}        # per_food says the same, shorter
         elif name == "suggest_meal":
             result = meals.suggest_meal(kb or default_kb(), args["meal"], _remaining_today(store, today),
                                         args.get("protein_g"), args.get("max_kcal"), args.get("avoid"))
@@ -336,17 +351,46 @@ def _need_profile(store: Store) -> dict[str, Any]:
 
 def _log_meal(args: dict[str, Any], store: Store, today: dt.date, kb: KnowledgeBase) -> dict[str, Any]:
     """Calories and the date are worked out here, whatever the model says. Nothing is saved if any food is unclear."""
+    date = _date(args, today)
+    calc = meals.calculate(kb, args.get("items"))
+    meal = store.log_meal(date=date,
+                          name=", ".join(f"{r['label']} {r['grams']:g} g" for r in calc["items"]), **calc["total"])
+    left = _remaining_today(store, today)
+    goal = coaching.daily_targets(_need_profile(store)) if left else None
+    say = f"Logged for {meal['date']}: {calc['say']}"
+    if left:
+        say += (f". Left today: {left['kcal']:g} of {goal['kcal']} kcal, "
+                f"{left['protein_g']:g} of {goal['protein_g']} g protein")
+    return {"logged": meal, "per_food": calc["per_food"], "assumptions": calc["assumptions"],
+            **({"incomplete": calc["incomplete"]} if "incomplete" in calc else {}),
+            "sources": calc["sources"], "say": say, "remaining_today": left, "targets": goal}
+
+
+def _sets(exercise: dict[str, Any]) -> dict[str, Any]:
+    """{name, sets: 3, reps: 8, weight_kg: 40} -> {name, sets: [{reps: 8, weight_kg: 40}] * 3}.
+    A list of sets is accepted too (different reps per set). Small models wrote one set for "3 sets of 8"."""
+    sets = exercise.get("sets")
+    if isinstance(sets, list):
+        rows = sets
+    elif isinstance(sets, int) and not isinstance(sets, bool) and 1 <= sets <= 20:
+        rows = [{"reps": exercise["reps"], "weight_kg": exercise["weight_kg"]}] * sets
+    else:
+        raise ValueError(f"sets for {exercise.get('name')!r} must be a number of sets from 1 to 20")
+    for x in rows:
+        if not (isinstance(x.get("reps"), int) and 0 < x["reps"] <= 100 and isinstance(x.get("weight_kg"), (int, float))
+                and 0 <= x["weight_kg"] <= 500):
+            raise ValueError(f"each set of {exercise.get('name')!r} needs reps (1-100) and weight_kg (0-500)")
+    return {"name": exercise["name"], "sets": [dict(x) for x in rows]}
+
+
+def _date(args: dict[str, Any], today: dt.date) -> str:
+    """The date from days_ago. Models make up dates (2023-10-15, three times), so they don't get to send one."""
     if "date" in args:
-        raise ValueError("log_meal has no 'date': use days_ago (0 = today, 1 = yesterday)")
+        raise ValueError("there is no 'date': use days_ago (0 = today, 1 = yesterday)")
     days_ago = args.get("days_ago") or 0
     if isinstance(days_ago, bool) or not isinstance(days_ago, int) or not 0 <= days_ago <= 14:
         raise ValueError("days_ago must be a whole number from 0 (today) to 14")
-    calc = meals.calculate(kb, args.get("items"))
-    meal = store.log_meal(date=(today - dt.timedelta(days=days_ago)).isoformat(),
-                          name=", ".join(f"{r['label']} {r['grams']:g} g" for r in calc["items"]), **calc["total"])
-    return {"logged": meal, "items": calc["items"], "assumptions": calc["assumptions"],
-            **({"incomplete": calc["incomplete"]} if "incomplete" in calc else {}),
-            "say": f"Logged for {meal['date']}: {calc['say']}", "remaining_today": _remaining_today(store, today)}
+    return (today - dt.timedelta(days=days_ago)).isoformat()
 
 
 def _remaining_today(store: Store, today: dt.date) -> dict[str, float] | None:

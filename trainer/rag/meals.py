@@ -19,6 +19,7 @@ from .text import is_japanese, normalize, tokenize
 
 UNITS = ["g", "ml", "piece", "slice", "bowl", "cup", "tbsp", "tsp", "pack", "serving"]
 MAX_QUANTITY = 3000
+MIN_GRAMS = 10
 MAX_SPREAD = 1.3        # the top matches may differ this much in kcal per 100 g before we ask which one
 UNIT_WORDS = {"tbsp": "tbsp|tablespoon", "tsp": "tsp|teaspoon", "ml": "ml|milliliter", "pack": "pack|package|container",
               "piece": "piece|item|each|fruit|sandwich|bar"}
@@ -115,6 +116,7 @@ def resolve(kb: KnowledgeBase, food: Any):
     """
     if not isinstance(food, str) or not food.strip():
         raise ValueError("each item needs 'food': one food in plain words, e.g. 'scrambled eggs'")
+    food = re.sub(rf"^\s*(?:an?\s+|one\s+)?(?:{'|'.join(UNITS[2:])})s?\s+of\s+", "", food, flags=re.IGNORECASE)    # "slice of toast"
     staple = _ALIAS.get(_key(food))
     if staple and staple.id in kb.food_by_id and not re.match(r"\s*\d", food):
         return kb.food_by_id[staple.id]
@@ -152,9 +154,13 @@ def grams_of(doc: Any, quantity: Any, unit: Any) -> tuple[float, str | None]:
         raise ValueError(f"quantity must be a number above 0 and up to {MAX_QUANTITY}, got {quantity!r}")
     if unit not in UNITS:
         raise ValueError(f"unit must be one of {UNITS}, got {unit!r}")
-    if unit == "g":
-        return float(quantity), None
     staple = _BY_ID.get(doc.id)
+    if unit == "g":
+        # "2 eggs" once arrived as 2 g and 6 kcal was saved. Spoon foods (oil, butter) can really be this small.
+        if quantity < MIN_GRAMS and staple and staple.units and not {"tbsp", "tsp"} & set(staple.units):
+            raise ValueError(f"{quantity:g} g of {staple.label} is too little to be right. If the user counted them, use "
+                             f"unit {' or '.join(repr(u) for u in staple.units)} with quantity {quantity:g}")
+        return float(quantity), None
     if staple and unit in staple.units:
         one = staple.units[unit]
         return quantity * one, f"1 {unit} of {staple.label} = {one:g} g"
@@ -169,7 +175,8 @@ def grams_of(doc: Any, quantity: Any, unit: Any) -> tuple[float, str | None]:
 # ── calculating ────────────────────────────────────────────────────────────────────────
 def calculate(kb: KnowledgeBase, items: Any) -> dict[str, Any]:
     """kcal and PFC of each item and the total. One bad item raises: never a total that silently misses a food."""
-    if not isinstance(items, list) or not items or not all(isinstance(i, dict) for i in items):
+    items = [_from_text(i) if isinstance(i, str) else i for i in items] if isinstance(items, list) else items
+    if not items or not all(isinstance(i, dict) for i in items):
         raise ValueError('items must be a list like [{"food": "cooked rice", "quantity": 150, "unit": "g"}]')
     parts, assumptions, labels = [], [], []
     for item in items:
@@ -186,12 +193,29 @@ def calculate(kb: KnowledgeBase, items: Any) -> dict[str, Any]:
         row["label"] = label
         row["grams"] = round(row["grams"])
     out["assumptions"] = list(dict.fromkeys(assumptions))
+    out["per_food"] = _per_food(out["items"])
     out["say"] = _say(out)
     return out
 
 
+def _from_text(text: str) -> dict[str, Any]:
+    """"2 scrambled eggs" / "1 slice of toast" / "150g rice": small models often send text. No number -> refused later."""
+    m = re.match(rf"\s*(\d+(?:\.\d+)?)\s*(?:({'|'.join(UNITS)})s?\b)?\s*(?:of\s+)?(.*)", text, re.IGNORECASE)
+    if not m or not m.group(3):
+        return {"food": text}
+    return {"food": m.group(3), "quantity": float(m.group(1)), "unit": (m.group(2) or "piece").lower()}
+
+
 def _label(doc: Any) -> str:
     return _BY_ID[doc.id].label if doc.id in _BY_ID else doc.data["name"]
+
+
+def _per_food(rows: list[dict[str, Any]]) -> list[str]:
+    """One labelled line per food. Given only a total, the model shared it out among the foods and got it wrong."""
+    def n(v, unit):
+        return f"unknown {unit}" if v is None else f"{v:g} {unit}"
+    return [f"{r['label']} {r['grams']:g} g = " + ", ".join(n(r[k], unit) for k, unit in (
+        ("kcal", "kcal"), ("protein_g", "g protein"), ("fat_g", "g fat"), ("carbs_g", "g carbs"))) for r in rows]
 
 
 def _say(calc: dict[str, Any]) -> str:
@@ -254,17 +278,24 @@ def suggest_meal(kb: KnowledgeBase, meal: str, remaining: dict[str, float] | Non
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
                                   or not low <= value <= high):
             raise ValueError(f"{name} must be a number from {low} to {high}, got {value!r}")
-    wanted = goal if protein_g is None else protein_g
+    # A named protein number is a minimum: it can raise our goal, never lower it (a model sent 25 unasked).
+    wanted = goal if protein_g is None else max(goal, protein_g)
     kcal_limit = kcal_limit if max_kcal is None else max_kcal
     unknown = set(avoid or []) - set(AVOID)
     if unknown:
         raise ValueError(f"can't check for {sorted(unknown)}; avoid can be {AVOID}. If it is an allergy, tell the "
                          "user you can't check for it")
-    banned = set(avoid or []) | (_MEAT if "meat" in (avoid or []) else set())
+    banned = set(avoid or [])
+    if "meat" in banned:
+        banned |= _MEAT
+    if "fish" in banned:
+        banned.add("shellfish")       # "I can't eat fish" often means seafood; leaving out too much is the safe mistake
     menus = [m for m in _MENUS if meal in m[0].split()
              and not any(i not in kb.food_by_id or _BY_ID[i].tags & banned for i in [m[1], *m[3]])]
-    # A number the user named is never lowered. Our own goal steps down by 5 g until something fits.
-    goals = [wanted] if protein_g is not None else [wanted, *range(int(wanted) - 5, 9, -5)]
+    # Our own goal steps down by 5 g until something fits, but never below a number the user named.
+    goals = [g for g in (wanted, *range(int(wanted) - 5, 9, -5)) if protein_g is None or g >= protein_g or g == wanted]
+    if protein_g is not None and protein_g not in goals:
+        goals.append(protein_g)
     options: list[dict[str, Any]] = []
     for goal in goals:
         options = [o for _, main, (low, high), sides in menus
@@ -276,7 +307,7 @@ def suggest_meal(kb: KnowledgeBase, meal: str, remaining: dict[str, float] | Non
                          + (f" within {kcal_limit:g} kcal" if kcal_limit else "")
                          + (f" without {sorted(banned)}" if banned else "") + ": tell the user, and offer a lower protein goal")
     out = {"meal": meal, "protein_goal_g": goal, "kcal_limit": kcal_limit, "options": options,
-           "note": "Suggestions only, nothing was logged. Copy the 'say' line; don't change grams or numbers."}
+           "note": "Suggestions only, nothing was logged. Copy the 'say' line; don't change grams or numbers, and don't split a total between foods (per_food has each food)."}
     if goal < wanted:
         out["below_goal"] = f"nothing reached {wanted:g} g, so these aim for {goal:g} g: tell the user"
     return out
@@ -297,7 +328,7 @@ def _fit(kb, main, low, high, sides, goal, kcal_limit) -> dict[str, Any] | None:
         if calc["total"]["protein_g"] >= goal and (kcal_limit is None or calc["total"]["kcal"] <= kcal_limit):
             for row in calc["items"]:
                 row["label"] = _BY_ID[row["food_id"]].label
-            return {"total": calc["total"], "say": _say(calc)}
+            return {"per_food": _per_food(calc["items"]), "total": calc["total"], "say": _say(calc)}
     return None
 
 

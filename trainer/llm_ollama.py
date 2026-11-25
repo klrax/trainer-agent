@@ -71,6 +71,9 @@ def to_openai_messages(system: str, messages: list[dict[str, Any]]) -> list[dict
                 elif item["type"] == "text":
                     out.append({"role": "user", "content": item["text"]})
             continue
+        if isinstance(content, str):                     # a reply written by code (safety.py, direct.py)
+            out.append({"role": "assistant", "content": content})
+            continue
         # assistant: a list of block objects; thinking blocks are skipped (Ollama can't use them)
         assistant: dict[str, Any] = {
             "role": "assistant",
@@ -151,15 +154,16 @@ def make_call_model(system: str, tools: list[dict[str, Any]], *, model: str = DE
                     base_url: str = BASE_URL, usage: Any = None, timeout: float = 600, think: bool = False):
     """Same contract as llm.make_call_model: returns call_model(messages) -> response.
 
-    think=False appends "/no_think", qwen3's switch for skipping its reasoning step: much faster on a
-    CPU (hundreds fewer tokens per call), usually somewhat worse at multi-step tool use. Measure both.
+    think=False sends reasoning_effort "none", which turns the reasoning step off. (The "/no_think" text this used
+    before did nothing with this Ollama version: a one-word answer still took 192 tokens instead of 2.)
+    Much faster on a CPU; may be worse at multi-step tool use. Measure both. Models without reasoning ignore it.
     """
     oa_tools = to_openai_tools(tools)
-    if not think:
-        system = system + "\n/no_think"
 
     def post(messages: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
         body: dict[str, Any] = {"model": model, "messages": to_openai_messages(system, messages), **extra}
+        if not think:
+            body["reasoning_effort"] = "none"
         if oa_tools:
             body["tools"] = oa_tools
         req = urllib.request.Request(f"{base_url}/chat/completions", data=json.dumps(body).encode(),

@@ -125,6 +125,12 @@ def session_for(date: str, train_days: list[str]) -> str | None:
     return split[ordered.index(weekday)]
 
 
+# Offered when the user asks for cardio. In get_context because the small model never called search_exercises for
+# cardio (0/3 with a prompt rule), but it reliably reads get_context.
+CARDIO = {"options": ["brisk walk (treadmill or outside)", "stationary bike", "rowing machine", "elliptical"],
+          "how": "20-30 min at an easy pace you could talk at, after lifting"}
+
+
 def next_weight(history: list[list[dict[str, Any]]], rep_min: int, rep_max: int,
                 step: float = 2.5) -> float | None:
     """Progressive overload ("double progression"): the weight to use next time for one exercise.

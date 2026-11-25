@@ -1,4 +1,5 @@
 """The Ollama adapter. Pure functions, so no Ollama needed to run these."""
+import pytest
 import json
 from types import SimpleNamespace as NS
 
@@ -73,3 +74,18 @@ def test_s4b_works_with_your_loop():
     r = run_turn(msgs, lambda m: replies.pop(0), lambda n, a: ('{"weekday": "Mon"}', False))
     assert r.text == "Monday: Full body A." and r.tool_calls == [("get_context", {})]
     assert to_openai_messages("S", msgs)[-2] == {"role": "tool", "tool_call_id": "t1", "content": '{"weekday": "Mon"}'}
+
+
+@pytest.mark.parametrize("think", [False, True])
+def test_s4b_thinking_is_really_switched(monkeypatch, think):
+    import io
+    import json
+    from trainer import llm_ollama
+    sent = {}
+
+    def fake(req, timeout):
+        sent.update(json.loads(req.data))
+        return io.BytesIO(b'{"choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}]}')
+    monkeypatch.setattr(llm_ollama.urllib.request, "urlopen", fake)
+    llm_ollama.make_call_model("sys", [], think=think)([{"role": "user", "content": "x"}])
+    assert sent.get("reasoning_effort") == (None if think else "none")

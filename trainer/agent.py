@@ -37,6 +37,7 @@ def run_turn(
     call_model: Callable[[list[dict[str, Any]]], Any],
     execute_tool: Callable[[str, dict[str, Any]], tuple[str, bool]],
     max_steps: int = 8,
+    finish: Callable[[list[tuple[str, dict[str, Any], str, bool]]], str | None] | None = None,
 ) -> AgentResult:
     """Run one user turn to the end. `messages` already ends with the user's message.
 
@@ -63,6 +64,8 @@ def run_turn(
              - make {"type": "tool_result", "tool_use_id": block.id, "content": content, "is_error": is_error}
          then append ONE message {"role": "user", "content": [all the tool_result dicts]}
          and go to the next step
+       - then, if finish is given: text = finish([(name, input, content, is_error), ...] of this step). Some text ->
+         append {"role": "assistant", "content": text} and return it as "done" (the tool's answer is the reply)
     4. after max_steps model calls without finishing -> return AgentResult("", "step_limit", tool_calls)
 
     Words: "text" = the .text of every "text" block in response.content, joined with "\\n".
@@ -93,7 +96,7 @@ def run_turn(
             continue                        # nothing to run; just ask the model to carry on
 
         # "tool_use": run every tool the model asked for, in order.
-        results = []
+        results, step = [], []
         for block in response.content:
             if block.type != "tool_use":
                 continue
@@ -104,9 +107,16 @@ def run_turn(
                 content, is_error = f"Error: {e}", True
             results.append({"type": "tool_result", "tool_use_id": block.id,
                             "content": content, "is_error": is_error})
+            step.append((block.name, block.input, content, is_error))
 
         # ALL results go back in ONE user message (separate messages teach the model to stop calling tools in parallel).
         messages.append({"role": "user", "content": results})
+
+        # The tool's answer may already be the whole reply: then skip the model call that would only copy it.
+        text = finish(step) if finish else None
+        if text:
+            messages.append({"role": "assistant", "content": text})
+            return AgentResult(text, "done", tool_calls)
 
     # Ran out of steps while the model was still calling tools: stop, to cap cost and latency.
     return AgentResult("", "step_limit", tool_calls)

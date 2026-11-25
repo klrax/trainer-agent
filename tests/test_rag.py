@@ -114,11 +114,14 @@ def test_rag_exercise_filters(kb):
         return {r["name"] for r in kb.search_exercises("lats", **kw)["results"]}
     assert names(equipment=["body only"]) == {"Pullups", "One Arm Chin"}
     assert names(equipment=["body only"], level="beginner") == {"Pullups"}
-    assert "Lat Stretch" in names(include_stretching=True)
+    assert "Lat Stretch" in names(category="stretching")
+    assert "Lat Stretch" not in names()                                     # lifting only by default
     assert names(muscles=["chest"]) == set()
     assert names(muscles=["chest", "lats"], level="beginner") == {"Pullups", "Lat Pulldown"}
     with pytest.raises(ValueError):
         kb.search_exercises("x", level="godlike")
+    with pytest.raises(ValueError):
+        kb.search_exercises("x", category="yoga")
 
 
 def test_rag_tools_and_japanese_output(kb, tmp_path):

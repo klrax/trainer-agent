@@ -74,7 +74,7 @@ def test_meals_model_numbers_and_dates_are_never_used(store, kb):
 
 
 @pytest.mark.parametrize("items", [
-    None, [], ["2 eggs"], [{}], [{"food": "toast"}], [item("2 toast", 1, "slice")], [item("toast and rice", 1, "g")],
+    None, [], "2 toast", ["toast"], ["2 unicorns"], [5], [{}], [{"food": "toast"}], [item("2 toast", 1, "slice")], [item("toast and rice", 1, "g")],
     [item("toast", 0, "g")], [item("toast", -1, "g")], [item("toast", True, "g")], [item("toast", "1", "g")],
     [item("toast", float("nan"), "g")], [item("toast", 9999, "g")], [item("toast", 1, "handful")],
     [item("toast", 1, "bowl")], [item("12345", 1, "g")], [item("unicorn", 1, "g")],
@@ -100,6 +100,32 @@ def test_meals_units(kb):
         meals.grams_of(hummus, 1, "bowl")
 
 
+def test_meals_text_items_are_understood(kb):
+    out = meals.calculate(kb, ["2 scrambled eggs", "1 slice of toast", "150g rice"])
+    assert [(r["label"], r["grams"]) for r in out["items"]] == [
+        ("scrambled eggs", 122), ("toast (white bread)", 55), ("cooked white rice", 150)]
+    assert out["per_food"][0] == "scrambled eggs 122 g = 182 kcal, 12.2 g protein, 13.4 g fat, 2 g carbs"
+
+
+def test_meals_unit_words_in_the_food_name(kb):
+    assert meals.resolve(kb, "slice of toast").id == meals.resolve(kb, "a slice of toast").id == "mext:01174"
+
+
+def test_meals_counted_food_sent_as_grams_is_refused(store, kb):
+    out, err = call(store, kb, "log_meal", items=[item("scrambled eggs", 2, "g")])
+    assert err and "'piece'" in out and store.store["meals"] == []
+    assert meals.grams_of(kb.food_by_id["usda:3"], 5, "g") == (5.0, None)        # not a counted food
+
+
+def test_meals_day_is_chosen_by_code(store, kb):
+    out, err = call(store, kb, "get_day_nutrition", date="2023-10-15")
+    assert err and "days_ago" in out
+    out, _ = call(store, kb, "get_day_nutrition", days_ago=1)
+    assert out["date"] == "2026-11-22" and out["targets"]["kcal"] == 2046
+    for bad in (-1, 15, 1.5, True):
+        assert call(store, kb, "get_day_nutrition", days_ago=bad)[1]
+
+
 def test_meals_lookup_saves_nothing(store, kb):
     out, err = call(store, kb, "get_food_nutrition", items=[item("chicken breast", 120, "g")])
     assert not err and out["total"]["protein_g"] == 46.6 and store.store["meals"] == []
@@ -110,11 +136,14 @@ def test_meals_suggestion_reaches_the_goal_and_saves_nothing(store, kb):
     assert not err and out["protein_goal_g"] == 50 and out["kcal_limit"] == 1023     # 108 / 2 -> kept to 50
     assert out["options"] and all(o["total"]["protein_g"] >= 50 and o["total"]["kcal"] <= 1023 for o in out["options"])
     assert store.store["meals"] == []
+    out, _ = call(store, kb, "suggest_meal", meal="lunch", protein_g=25)
+    assert out["protein_goal_g"] == 50                      # an invented low number can't lower the goal
     out, _ = call(store, kb, "suggest_meal", meal="lunch", protein_g=30, max_kcal=300)
-    assert all(o["total"]["protein_g"] >= 30 and o["total"]["kcal"] <= 300 for o in out["options"])
+    assert out["options"] and all(o["total"]["protein_g"] >= 30 and o["total"]["kcal"] <= 300 for o in out["options"])
 
 
 def test_meals_avoid(store, kb):
+    assert "fish" in meals.AVOID and "shellfish" in meals.AVOID
     out, _ = call(store, kb, "suggest_meal", meal="lunch", avoid=["meat"])
     assert out["options"] and not any("chicken" in o["say"] for o in out["options"])
     out, err = call(store, kb, "suggest_meal", meal="lunch", avoid=["meat", "fish"])

@@ -23,6 +23,9 @@ MAX_LIMIT = 10
 WEAK_COVERAGE = 0.7
 WEAK_COSINE = {"food": 0.6, "exercise": 0.45}
 TRAINING_CATEGORIES = {"strength", "powerlifting", "olympic weightlifting"}
+# What search_exercises can ask for. "training" (the default) is lifting; the rest are free-exercise-db categories.
+CATEGORIES = {"training": TRAINING_CATEGORIES, "cardio": {"cardio"}, "stretching": {"stretching"},
+              "plyometrics": {"plyometrics"}, "strongman": {"strongman"}}
 BODY_PARTS = {("back", "背中"): ["lats", "middle back", "lower back", "traps"],
               ("leg", "脚", "下半身"): ["quadriceps", "hamstrings", "glutes", "calves"],
               ("arm", "腕"): ["biceps", "triceps", "forearms"],
@@ -114,7 +117,7 @@ class KnowledgeBase:
         return out
 
     def search_exercises(self, query: str, muscles: list[str] | None = None, equipment: list[str] | None = None,
-                         level: str | None = None, include_stretching: bool = False, limit: int = 5,
+                         level: str | None = None, category: str = "training", limit: int = 5,
                          mode: str = "hybrid") -> dict[str, Any]:
         """Filters are exact and applied before ranking.
 
@@ -123,15 +126,20 @@ class KnowledgeBase:
           often skip it and meaning search alone returns shoulder work for "back"
         - equipment: any of these (so a user without a barbell never sees barbell work)
         - level: this level or easier
+        - category: "training" (lifting, the default), "cardio", "stretching", "plyometrics" or "strongman".
+          It used to be include_stretching=True, which hid cardio behind a stretching flag: the model never
+          found cardio (cardio eval 0/3)
         """
         _check_query(query, limit)
         muscles = muscles or body_part_muscles(query)
         if level is not None and level not in LEVELS:
             raise ValueError(f"level must be one of {LEVELS}")
+        if category not in CATEGORIES:
+            raise ValueError(f"category must be one of {sorted(CATEGORIES)}")
 
         def keep(doc: Doc) -> bool:
             d = doc.data
-            if not include_stretching and d["category"] not in TRAINING_CATEGORIES:
+            if d["category"] not in CATEGORIES[category]:
                 return False
             if muscles and not set(muscles) & set(d["primary_muscles"]):
                 return False

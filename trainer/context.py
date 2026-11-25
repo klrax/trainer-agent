@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from .coaching import SESSION_EXERCISES, WEEKDAYS, next_weight, session_for
+from .coaching import CARDIO, SESSION_EXERCISES, WEEKDAYS, next_weight, session_for
 from .store import Store
 
 
@@ -23,12 +23,17 @@ def build_context(store: Store, today: dt.date) -> dict[str, Any]:
                                   "suggested_weight_kg": 52.5 or None (no history)}, ...]}}
     """
     profile = store.get_profile()
-    return {
+    context = {
         "date": today.isoformat(),
         "weekday": WEEKDAYS[today.weekday()],
         "profile": profile,
         "today": _todays_plan(store, today, profile),
+        "cardio": CARDIO,
     }
+    if not profile:   # seen: "no training days yet, let me know when..." and no question. Tell it what to do next.
+        context["next_step"] = ("No profile yet. Before planning anything, ask for: sex, age, height, weight, "
+                                "activity level, goal, which weekdays they can train, and experience.")
+    return context
 
 
 def _todays_plan(store: Store, today: dt.date, profile: dict[str, Any] | None) -> dict[str, Any]:
